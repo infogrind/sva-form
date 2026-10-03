@@ -1,0 +1,31 @@
+[project]
+name = "sva-form"
+version = "0.1.0"
+description = "Monthly SVA Zürich hourly payslips (Stundenlohnabrechnung) and year-end summary"
+readme = "README.md"
+authors = [
+    { name = "Marius Kleiner", email = "718881+infogrind@users.noreply.github.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "pypdf>=6.19.0",
+]
+
+[project.scripts]
+sva-form = "sva_form.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.16.10",
+]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
