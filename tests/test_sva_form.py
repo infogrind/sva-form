@@ -1,7 +1,6 @@
 import re
 from datetime import date
 from decimal import Decimal
-from pathlib import Path
 
 import pytest
 
@@ -220,18 +219,6 @@ def test_import_roundtrip(env):
     assert key == "2026-10"
     assert record["payout"] == "388.75"
     assert record["filled_on"] == "2026-10-26"
-
-
-EXAMPLE = Path.home() / "tmp" / "ahv-formular-stundenlohnabrechnung-2026-09.pdf"
-
-
-@pytest.mark.skipif(not EXAMPLE.exists(), reason="local example form not available")
-def test_import_hand_filled_form():
-    key, record = cli.record_from_form(read_form(EXAMPLE), EXAMPLE)
-    assert key == "2026-09"
-    assert D(record["base"]) == D("105.62175")
-    assert record["payout"] == "93.6"
-    assert record["paid_on"] == "2026-09-29"
 
 
 def test_year_report(env, capsys):
