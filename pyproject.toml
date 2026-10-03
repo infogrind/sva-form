@@ -3,6 +3,8 @@ name = "sva-form"
 version = "0.1.0"
 description = "Monthly SVA Zürich hourly payslips (Stundenlohnabrechnung) and year-end summary"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     { name = "Marius Kleiner", email = "718881+infogrind@users.noreply.github.com" }
 ]
