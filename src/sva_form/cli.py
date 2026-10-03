@@ -172,10 +172,13 @@ def cmd_month(args: argparse.Namespace) -> None:
     paid_on = args.paid_on or filled_on
     year, month = args.month or payroll_month(filled_on, cfg.workday)
     slip = Payslip(args.hours, cfg.hourly_rate, cfg.rates)
-    output = args.output or cfg.output_dir / output_filename(year, month)
+    if args.dry_run:
+        output = args.output or Path("test.pdf")
+    else:
+        output = args.output or cfg.output_dir / output_filename(year, month)
     fill_form(form_values(cfg, slip, year, month, filled_on, paid_on), output)
     key = f"{year}-{month:02d}"
-    replaced = cfgmod.save_record(
+    replaced = not args.dry_run and cfgmod.save_record(
         key, record_from_payslip(slip, filled_on, paid_on, output.resolve())
     )
 
@@ -193,7 +196,9 @@ def cmd_month(args: argparse.Namespace) -> None:
     ]:
         print(f"  {label:<28}{chf(value):>10}")
     print(f"PDF: {output}")
-    if replaced:
+    if args.dry_run:
+        print("Dry run: nothing recorded.")
+    elif replaced:
         print(f"Replaced the existing record for {key}.")
 
 
@@ -240,6 +245,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--paid-on", type=date.fromisoformat, help="transfer date (default: --date)")
     p.add_argument("-o", "--output", type=Path, help="output PDF path")
+    p.add_argument(
+        "-n",
+        "--dry-run",
+        action="store_true",
+        help="write test.pdf (or --output) and don't record the month",
+    )
     p.set_defaults(func=cmd_month)
 
     p = sub.add_parser("year", help="year-end summary incl. expected SVA bill")

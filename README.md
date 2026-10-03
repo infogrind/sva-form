@@ -10,6 +10,7 @@ SVA bill.
 ```sh
 uv run sva-form init              # create ~/.config/sva-form/config.toml
 uv run sva-form month 13.5        # payslip for the month of the last Monday
+uv run sva-form month 13.5 --dry-run   # writes ./test.pdf, records nothing
 uv run sva-form month 12 --month 2026-08 --date 2026-09-01 --paid-on 2026-09-02
 uv run sva-form import ~/old/ahv-formular-*.pdf   # record earlier, hand-filled forms
 uv run sva-form year 2026         # year-end summary

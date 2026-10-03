@@ -218,3 +218,12 @@ def test_year_report(env, capsys):
     assert "2025-12" not in out
     bill = EmployerBill(D("714.978"))
     assert f"{bill.total:.2f}" in out
+
+
+def test_dry_run_writes_test_pdf_and_records_nothing(env, monkeypatch, capsys):
+    monkeypatch.chdir(env)
+    cli.main(["month", "12", "--dry-run", "--date", "2026-10-26"])
+    assert read_form(env / "test.pdf")["Lohnabrechnung"] == "Oktober 2026"
+    assert not (env / "out").exists()
+    assert load_records() == {}
+    assert "Dry run" in capsys.readouterr().out

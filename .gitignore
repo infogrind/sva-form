@@ -7,3 +7,4 @@ dist/
 
 # Generated payslips contain personal data
 ahv-formular-stundenlohnabrechnung-*.pdf
+test.pdf
