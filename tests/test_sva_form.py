@@ -12,6 +12,7 @@ from sva_form.calc import (
     Rates,
     month_label,
     parse_month_label,
+    payment_date,
     payroll_month,
     round_5rp,
 )
@@ -115,6 +116,21 @@ def test_payroll_month(today, expected):
 
 def test_payroll_month_other_workday():
     assert payroll_month(date(2026, 10, 3), workday=3) == (2026, 10)  # Thursday 1 Oct
+
+
+@pytest.mark.parametrize(
+    ("year", "month", "expected"),
+    [
+        (2026, 10, date(2026, 10, 29)),  # Mon 26, Wed 28 -> Thursday 29
+        (2026, 9, date(2026, 9, 29)),  # Mon 28, Wed 30 is the last day -> Tuesday 29
+        (2026, 3, date(2026, 3, 31)),  # Mon 30 -> Tuesday 31
+        (2026, 8, date(2026, 9, 1)),  # Mon 31 -> Tuesday in next month
+        (2025, 12, date(2025, 12, 30)),  # Mon 29, Wed 31 is the last day -> Tuesday 30
+        (2026, 2, date(2026, 2, 26)),  # Mon 23, Wed 25, month ends Sat 28 -> Thursday 26
+    ],
+)
+def test_payment_date(year, month, expected):
+    assert payment_date(year, month) == expected
 
 
 def test_month_labels():
@@ -227,3 +243,8 @@ def test_dry_run_writes_test_pdf_and_records_nothing(env, monkeypatch, capsys):
     assert not (env / "out").exists()
     assert load_records() == {}
     assert "Dry run" in capsys.readouterr().out
+
+
+def test_month_default_payment_date(env):
+    cli.main(["month", "12", "--month", "2026-08", "--date", "2026-08-26"])
+    assert load_records()["2026-08"]["paid_on"] == "2026-09-01"

@@ -1,5 +1,6 @@
 """Payroll calculations for the SVA Zürich hourly wage form (vereinfachtes Abrechnungsverfahren)."""
 
+import calendar
 from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
@@ -58,6 +59,27 @@ def payroll_month(today: date, workday: int = 0) -> tuple[int, int]:
     """Month of the most recent `workday` (0 = Monday) on or before `today`."""
     last_workday = today - timedelta(days=(today.weekday() - workday) % 7)
     return last_workday.year, last_workday.month
+
+
+def last_weekday_of_month(year: int, month: int, weekday: int) -> date:
+    last_day = date(year, month, calendar.monthrange(year, month)[1])
+    return last_day - timedelta(days=(last_day.weekday() - weekday) % 7)
+
+
+def payment_date(year: int, month: int, workday: int = 0) -> date:
+    """Transfer date for a month's wage.
+
+    If the Wednesday after the last Monday is at least one day before the end
+    of the month, the transfer goes out the next day (Thursday, still in the
+    month); otherwise on the Tuesday after the last Monday, which falls into
+    the next month only if that Monday is the last day of the month.
+    `workday` shifts the rule for a workday other than Monday.
+    """
+    last_workday = last_weekday_of_month(year, month, workday)
+    thursday = last_workday + timedelta(days=3)
+    if thursday.month == month:
+        return thursday
+    return last_workday + timedelta(days=1)
 
 
 def month_label(year: int, month: int) -> str:

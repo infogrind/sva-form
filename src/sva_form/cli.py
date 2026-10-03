@@ -8,7 +8,15 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from . import config as cfgmod
-from .calc import EmployerBill, Payslip, money, month_label, parse_month_label, payroll_month
+from .calc import (
+    EmployerBill,
+    Payslip,
+    money,
+    month_label,
+    parse_month_label,
+    payment_date,
+    payroll_month,
+)
 from .config import Config, ConfigError
 from .pdf import fill_form, read_form
 
@@ -169,8 +177,8 @@ def _parse_month(text: str) -> tuple[int, int]:
 def cmd_month(args: argparse.Namespace) -> None:
     cfg = cfgmod.load_config()
     filled_on = args.date or date.today()
-    paid_on = args.paid_on or filled_on
     year, month = args.month or payroll_month(filled_on, cfg.workday)
+    paid_on = args.paid_on or payment_date(year, month, cfg.workday)
     slip = Payslip(args.hours, cfg.hourly_rate, cfg.rates)
     if args.dry_run:
         output = args.output or Path("test.pdf")
@@ -243,7 +251,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--date", type=date.fromisoformat, help="date the form is filled (default: today)"
     )
-    p.add_argument("--paid-on", type=date.fromisoformat, help="transfer date (default: --date)")
+    p.add_argument(
+        "--paid-on",
+        type=date.fromisoformat,
+        help="transfer date (default: payment rule, see README)",
+    )
     p.add_argument("-o", "--output", type=Path, help="output PDF path")
     p.add_argument(
         "-n",

@@ -20,6 +20,11 @@ The payroll month is the month of the most recent workday (default: Monday)
 on or before the filling date. Re-running `month` for the same month replaces
 its record.
 
+The transfer date ("Überweisung am") defaults to the Thursday after the last
+Monday of the month if that Thursday is still in the month; otherwise to the
+Tuesday after the last Monday (in the next month only if that Monday is the
+last day of the month). Override it with `--paid-on`.
+
 ## Files
 
 - Config: `$XDG_CONFIG_HOME/sva-form/config.toml` (default `~/.config/...`):
