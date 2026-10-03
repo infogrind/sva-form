@@ -10,6 +10,7 @@ from sva_form.calc import (
     EmployerBill,
     Payslip,
     Rates,
+    money,
     month_label,
     parse_month_label,
     payment_date,
@@ -98,6 +99,16 @@ def test_employer_bill():
     assert bill.admin == D("5.3")
     assert bill.tax == D("50")
     assert bill.total == D("193.55")
+
+
+def test_employer_bill_items_rounded_to_5rp():
+    bill = EmployerBill(D("714.978"))
+    assert bill.ahv == D("75.80")  # 75.7877
+    assert bill.alv == D("15.75")  # 15.7295
+    assert bill.fak == D("7.35")  # 7.3285
+    assert bill.admin == D("3.80")  # 5% of 75.80 = 3.79
+    assert bill.tax == D("35.75")  # 35.7489
+    assert bill.total == D("138.45")
 
 
 @pytest.mark.parametrize(
@@ -234,7 +245,13 @@ def test_year_report(env, capsys):
     assert re.search(r"Beitragspflichtiger Lohn +CHF +714\.98\n", out)
     assert "2025-12" not in out
     bill = EmployerBill(D("714.978"))
-    assert f"{bill.total:.2f}" in out
+    employee = D("714.978") * D("0.114")  # 5.3% + 1.1% + 5% withheld
+    total_row = re.search(r"  Total +(\S+) +(\S+) +(\S+)\n", out)
+    assert total_row.groups() == tuple(
+        f"{money(x):.2f}" for x in (bill.total, employee, bill.total - employee)
+    )
+    assert re.search(r"Lohnbeiträge FAK 1\.025% +7\.35 +– +7\.35\n", out)
+    assert re.search(r"Steuerabzug 5% +35\.75 +35\.75 +–\n", out)
 
 
 def test_dry_run_writes_test_pdf_and_records_nothing(env, monkeypatch, capsys):

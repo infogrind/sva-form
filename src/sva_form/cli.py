@@ -143,28 +143,39 @@ def year_report(records: dict[str, dict], year: int, cfg: Config) -> str:
     base = total("base")
     bill = EmployerBill(base, cfg.rates)
     rates = cfg.rates
-    withheld = total("total_deductions")
 
     def row(label: str, amount: Decimal) -> str:
-        return f"{label:<54}CHF {chf(amount):>10}"
+        return f"{label:<50}CHF {chf(amount):>10}"
 
+    def cell(amount: Decimal | None) -> str:
+        return "–" if amount is None or money(amount) == 0 else chf(amount)
+
+    def split_row(label: str, billed: Decimal, employee: Decimal | None = None) -> str:
+        employer = billed - (employee or 0)
+        return f"{label:<46}{cell(billed):>14}{cell(employee):>18}{cell(employer):>17}"
+
+    # The employee shares are what was actually withheld on the monthly payslips.
+    employee = {key: total(key) for key in ("ahv", "alv", "tax")}
     lines += [
         "",
         row("Bruttolohn (Grundlohn)", total("gross")),
         row("Ferienzuschlag", total("vacation")),
         row("Beitragspflichtiger Lohn", base),
         "",
-        "Erwartete Rechnung SVA Zürich:",
-        row(f"  Lohnbeiträge AHV/IV/EO {rates.employer_ahv}%", bill.ahv),
-        row(f"  Lohnbeiträge ALV {rates.employer_alv}%", bill.alv),
-        row(f"  Lohnbeiträge FAK {rates.fak}%", bill.fak),
-        row(f"  Verwaltungskosten {rates.admin}% der AHV/IV/EO-Beiträge", bill.admin),
-        row(f"  Steuerabzug {rates.tax}%", bill.tax),
-        row("  Total", bill.total),
+        f"{'Erwartete Rechnung SVA Zürich':<46}{'Rechnung SVA':>14}"
+        f"{'Arbeitnehmer/in':>18}{'Arbeitgeber/in':>17}",
+        split_row(f"  Lohnbeiträge AHV/IV/EO {rates.employer_ahv}%", bill.ahv, employee["ahv"]),
+        split_row(f"  Lohnbeiträge ALV {rates.employer_alv}%", bill.alv, employee["alv"]),
+        split_row(f"  Lohnbeiträge FAK {rates.fak}%", bill.fak),
+        split_row(f"  Verwaltungskosten {rates.admin}% der AHV/IV/EO", bill.admin),
+        split_row(f"  Steuerabzug {rates.tax}%", bill.tax, employee["tax"]),
+        "-" * 95,
+        split_row("  Total", bill.total, sum(employee.values())),
         "",
-        row("  davon bereits vom Lohn abgezogen", -withheld),
-        row("  Effektive Kosten Arbeitgeber (zusätzlich zum Lohn)", bill.total - withheld),
+        "  Arbeitnehmer/in: monatlich vom Lohn abgezogen und an die SVA weitergeleitet.",
+        "  Arbeitgeber/in: eigene Beiträge zusätzlich zum Lohn.",
         "",
+        row("Auszahlungen an Arbeitnehmer/in", total("payout")),
         row(f"Gesamtkosten {year} (Auszahlungen + Rechnung SVA)", total("payout") + bill.total),
     ]
     return "\n".join(lines)

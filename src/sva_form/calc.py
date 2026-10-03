@@ -140,30 +140,34 @@ class Payslip:
 
 @dataclass(frozen=True)
 class EmployerBill:
-    """What SVA Zürich bills at year end for a given Beitragspflichtiger Lohn."""
+    """What SVA Zürich bills at year end for a given Beitragspflichtiger Lohn.
+
+    Like on the actual bill, every item is rounded to 5 Rappen; the
+    Verwaltungskosten are computed from the rounded AHV/IV/EO contributions.
+    """
 
     base: Decimal
     rates: Rates = Rates()
 
     @property
     def ahv(self) -> Decimal:
-        return self.base / 100 * self.rates.employer_ahv
+        return round_5rp(self.base / 100 * self.rates.employer_ahv)
 
     @property
     def alv(self) -> Decimal:
-        return self.base / 100 * self.rates.employer_alv
+        return round_5rp(self.base / 100 * self.rates.employer_alv)
 
     @property
     def fak(self) -> Decimal:
-        return self.base / 100 * self.rates.fak
+        return round_5rp(self.base / 100 * self.rates.fak)
 
     @property
     def admin(self) -> Decimal:
-        return self.ahv / 100 * self.rates.admin
+        return round_5rp(self.ahv / 100 * self.rates.admin)
 
     @property
     def tax(self) -> Decimal:
-        return self.base / 100 * self.rates.tax
+        return round_5rp(self.base / 100 * self.rates.tax)
 
     @property
     def total(self) -> Decimal:
