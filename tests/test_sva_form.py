@@ -3,6 +3,7 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
+from pypdf import PdfReader
 
 from sva_form import cli
 from sva_form.calc import (
@@ -297,7 +298,14 @@ def test_qr_bill_data(env):
 def test_month_writes_qr_bill(env, monkeypatch):
     cli.main(["month", "12", "--date", "2026-10-26"])
     qr = env / "out" / "qr-zahlung-2026-10.pdf"
-    assert qr.read_bytes().startswith(b"%PDF")
+    text = PdfReader(qr).pages[0].extract_text()
+    for expected in [
+        "Zahlteil",
+        "CH93 0076 2011 6238 5295 7",
+        "Anna Beispiel",
+        "Lohn Oktober 2026",
+    ]:
+        assert expected in text
     monkeypatch.chdir(env)
     cli.main(["month", "12", "--dry-run", "--date", "2026-10-26"])
     assert (env / "test-qr.pdf").exists()
