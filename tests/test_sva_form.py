@@ -16,8 +16,9 @@ from sva_form.calc import (
     payroll_month,
     round_5rp,
 )
-from sva_form.config import ConfigError, init_config, load_config, load_records
+from sva_form.config import ConfigError, Person, init_config, load_config, load_records
 from sva_form.pdf import read_form
+from sva_form.qr import build_qr_bill, structured_address
 
 D = Decimal
 
@@ -248,3 +249,51 @@ def test_dry_run_writes_test_pdf_and_records_nothing(env, monkeypatch, capsys):
 def test_month_default_payment_date(env):
     cli.main(["month", "12", "--month", "2026-08", "--date", "2026-08-26"])
     assert load_records()["2026-08"]["paid_on"] == "2026-09-01"
+
+
+# --- QR-bill --------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("hours", "expected"),
+    [("9.75", "Lohn Oktober 2026 (9.75h)"), ("13.50", "Lohn Oktober 2026 (13.5h)"),
+     ("10", "Lohn Oktober 2026 (10h)")],
+)  # fmt: skip
+def test_qr_message(hours, expected):
+    assert cli.qr_message(2026, 10, D(hours)) == expected
+
+
+@pytest.mark.parametrize(
+    ("street_line", "street", "house_num"),
+    [("Seeweg 5", "Seeweg", "5"), ("Am Bach 12a", "Am Bach", "12a"),
+     ("Dorfplatz", "Dorfplatz", "")],
+)  # fmt: skip
+def test_structured_address(street_line, street, house_num):
+    address = structured_address(Person("A B", [street_line, "8047 Zürich"]))
+    assert address == {
+        "name": "A B", "street": street, "house_num": house_num,
+        "pcode": "8047", "city": "Zürich", "country": "CH",
+    }  # fmt: skip
+
+
+@pytest.mark.parametrize("address", [["Strasse 1"], ["Strasse 1", "Zürich"]])
+def test_structured_address_invalid(address):
+    with pytest.raises(ConfigError):
+        structured_address(Person("A B", address))
+
+
+def test_qr_bill_data(env):
+    data = build_qr_bill(load_config(), D("93.55"), "Lohn September 2026").qr_data()
+    lines = data.split("\r\n")
+    assert lines[:4] == ["SPC", "0200", "1", "CH9300762011623852957"]
+    assert lines[4:11] == ["S", "Anna Beispiel", "Beispielstrasse", "2", "8047", "Zürich", "CH"]
+    assert "93.55" in lines and "Lohn September 2026" in lines and "NON" in lines
+
+
+def test_month_writes_qr_bill(env, monkeypatch):
+    cli.main(["month", "12", "--date", "2026-10-26"])
+    qr = env / "out" / "qr-zahlung-2026-10.pdf"
+    assert qr.read_bytes().startswith(b"%PDF")
+    monkeypatch.chdir(env)
+    cli.main(["month", "12", "--dry-run", "--date", "2026-10-26"])
+    assert (env / "test-qr.pdf").exists()

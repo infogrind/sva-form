@@ -9,8 +9,8 @@ SVA bill.
 
 ```sh
 uv run sva-form init              # create ~/.config/sva-form/config.toml
-uv run sva-form month 13.5        # payslip for the month of the last Monday
-uv run sva-form month 13.5 --dry-run   # writes ./test.pdf, records nothing
+uv run sva-form month 13.5        # payslip + QR-bill for the month of the last Monday
+uv run sva-form month 13.5 --dry-run   # writes ./test.pdf and ./test-qr.pdf, records nothing
 uv run sva-form month 12 --month 2026-08 --date 2026-09-01 --paid-on 2026-09-02
 uv run sva-form import ~/old/ahv-formular-*.pdf   # record earlier, hand-filled forms
 uv run sva-form year 2026         # year-end summary
@@ -31,7 +31,10 @@ last day of the month). Override it with `--paid-on`.
   employer, employee details, hourly rate, optional rate overrides.
 - Records: `$XDG_DATA_HOME/sva-form/records.json` (default
   `~/.local/share/...`): one entry per month with exact amounts.
-- PDFs: `output_dir` from the config, default the current directory.
+- PDFs: `output_dir` from the config, default the current directory:
+  `ahv-formular-stundenlohnabrechnung-YYYY-MM.pdf` (payslip) and
+  `qr-zahlung-YYYY-MM.pdf` (Swiss QR-bill for the payout, to upload in
+  e-banking; the transfer date has to be set there).
 
 ## Calculation
 

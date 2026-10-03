@@ -19,6 +19,7 @@ from .calc import (
 )
 from .config import Config, ConfigError
 from .pdf import fill_form, read_form
+from .qr import write_qr_bill
 
 AMOUNT_KEYS = [
     "gross",
@@ -44,6 +45,15 @@ def fmt2(amount: Decimal) -> str:
 
 def output_filename(year: int, month: int) -> str:
     return f"ahv-formular-stundenlohnabrechnung-{year}-{month:02d}.pdf"
+
+
+def qr_filename(year: int, month: int) -> str:
+    return f"qr-zahlung-{year}-{month:02d}.pdf"
+
+
+def qr_message(year: int, month: int, hours: Decimal) -> str:
+    """E.g. 'Lohn Oktober 2026 (9.75h)'."""
+    return f"Lohn {month_label(year, month)} ({hours.normalize():f}h)"
 
 
 def form_values(
@@ -184,7 +194,9 @@ def cmd_month(args: argparse.Namespace) -> None:
         output = args.output or Path("test.pdf")
     else:
         output = args.output or cfg.output_dir / output_filename(year, month)
+    qr_output = output.parent / ("test-qr.pdf" if args.dry_run else qr_filename(year, month))
     fill_form(form_values(cfg, slip, year, month, filled_on, paid_on), output)
+    write_qr_bill(cfg, slip.payout, qr_message(year, month, slip.hours), qr_output)
     key = f"{year}-{month:02d}"
     replaced = not args.dry_run and cfgmod.save_record(
         key, record_from_payslip(slip, filled_on, paid_on, output.resolve())
@@ -204,6 +216,7 @@ def cmd_month(args: argparse.Namespace) -> None:
     ]:
         print(f"  {label:<28}{chf(value):>10}")
     print(f"PDF: {output}")
+    print(f"QR-Rechnung: {qr_output} (Überweisung am {paid_on:%d.%m.%Y})")
     if args.dry_run:
         print("Dry run: nothing recorded.")
     elif replaced:
@@ -261,7 +274,7 @@ def build_parser() -> argparse.ArgumentParser:
         "-n",
         "--dry-run",
         action="store_true",
-        help="write test.pdf (or --output) and don't record the month",
+        help="write test.pdf and test-qr.pdf and don't record the month",
     )
     p.set_defaults(func=cmd_month)
 

@@ -8,3 +8,5 @@ dist/
 # Generated payslips contain personal data
 ahv-formular-stundenlohnabrechnung-*.pdf
 test.pdf
+test-qr.pdf
+qr-zahlung-*.pdf

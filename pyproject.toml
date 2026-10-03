@@ -9,6 +9,8 @@ authors = [
 requires-python = ">=3.13"
 dependencies = [
     "pypdf>=6.19.0",
+    "qrbill>=1.2.0",
+    "svglib>=2.2.0",
 ]
 
 [project.scripts]
