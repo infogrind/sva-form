@@ -23,6 +23,8 @@ workday = "monday"
 # output_dir = "~/Documents/Lohnabrechnungen"
 # Where the QR-bill for e-banking is written (default: output_dir).
 # qr_output_dir = "~/Downloads"
+# Open the payslip after `month` (macOS, interactive runs only).
+# open_payslip = true
 
 [employer]
 name = "Vorname Nachname"
@@ -97,6 +99,7 @@ class Config:
     workday: int = 0
     output_dir: Path = Path(".")
     qr_output_dir: Path | None = None
+    open_payslip: bool = True
     rate_overrides: dict = field(default_factory=dict)  # [rates]: all years
     year_rate_overrides: dict[int, dict] = field(default_factory=dict)  # [rates.YYYY]
 
@@ -145,6 +148,7 @@ def load_config(path: Path | None = None) -> Config:
             qr_output_dir=Path(raw["qr_output_dir"]).expanduser()
             if "qr_output_dir" in raw
             else None,
+            open_payslip=bool(raw.get("open_payslip", True)),
             **_rate_overrides(raw.get("rates", {})),
         )
     except KeyError as e:

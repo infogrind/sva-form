@@ -44,6 +44,12 @@ hourly_rate = 30
 """
 
 
+@pytest.fixture(autouse=True)
+def no_external_programs(monkeypatch):
+    """Never launch programs (e.g. `open` for the payslip) from tests."""
+    monkeypatch.setattr(cli.subprocess, "run", lambda *args, **kwargs: None)
+
+
 @pytest.fixture
 def env(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
@@ -171,6 +177,7 @@ def test_load_config(env):
     assert cfg.hourly_rate == D("30")
     assert cfg.workday == 0
     assert cfg.rates_for(2026) == (Rates(), None)
+    assert cfg.open_payslip is True
 
 
 def test_rate_overrides(env):
@@ -581,7 +588,7 @@ def test_hours_suggestion_scales_by_workdays(env):
 def test_month_asks_for_hours(env, monkeypatch, answer, hours):
     cli.main(["month", "16.25", "--month", "2026-08", "--date", "2026-08-26"])
     prompts = _interactive(monkeypatch, answer)
-    cli.main(["month", "--month", "2026-09", "--date", "2026-09-28"])
+    cli.main(["month", "--month", "2026-09", "--date", "2026-09-28", "--no-open"])
     assert prompts == [
         "Stunden für September 2026 [Enter = 13.00: 4 Montage à 3.25 h wie im August 2026]: "
     ]
@@ -590,7 +597,7 @@ def test_month_asks_for_hours(env, monkeypatch, answer, hours):
 
 def test_month_asks_again_after_invalid_hours(env, monkeypatch, capsys):
     prompts = _interactive(monkeypatch, "", "abc", "-3", "12")
-    cli.main(["month", "--date", "2026-10-26"])
+    cli.main(["month", "--date", "2026-10-26", "--no-open"])
     assert prompts == ["Stunden für Oktober 2026: "] * 4  # no records, no suggestion
     assert load_records()["2026-10"]["hours"] == "12"
     assert capsys.readouterr().out.count("Please enter the hours") == 3
@@ -611,3 +618,28 @@ def test_month_hours_prompt_eof(env, monkeypatch):
     with pytest.raises(SystemExit, match="No hours given"):
         cli.main(["month", "--date", "2026-10-26"])
     assert load_records() == {}
+
+
+# --- opening the payslip ----------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("platform", "tty", "extra", "config", "opened"),
+    [
+        ("darwin", True, [], "", True),
+        ("darwin", True, ["--no-open"], "", False),
+        ("darwin", True, [], "open_payslip = false\n", False),
+        ("darwin", False, [], "", False),  # e.g. an automated run
+        ("linux", True, [], "", False),
+    ],
+)
+def test_open_payslip(env, monkeypatch, platform, tty, extra, config, opened):
+    path = env / "config" / "sva-form" / "config.toml"
+    path.write_text(config + path.read_text())
+    monkeypatch.setattr("sys.platform", platform)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: tty)
+    calls = []
+    monkeypatch.setattr(cli.subprocess, "run", lambda cmd, **kw: calls.append(cmd))
+    cli.main(["month", "12", "--date", "2026-10-26", *extra])
+    pdf = env / "out" / "ahv-formular-stundenlohnabrechnung-2026-10.pdf"
+    assert calls == ([["open", str(pdf)]] if opened else [])

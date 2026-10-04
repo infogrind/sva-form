@@ -2,6 +2,7 @@
 
 import argparse
 import re
+import subprocess
 import sys
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
@@ -317,6 +318,12 @@ def ask_hours(year: int, month: int, suggestion: tuple[Decimal, str] | None) -> 
         print(f"Please enter the hours as a number, e.g. 13.5 (got {answer!r}).")
 
 
+def open_payslip(path: Path) -> None:
+    """Show the payslip in the default PDF viewer (macOS, interactive runs only)."""
+    if sys.platform == "darwin" and sys.stdin.isatty():
+        subprocess.run(["open", str(path)], check=False)
+
+
 def cmd_month(args: argparse.Namespace) -> None:
     cfg = cfgmod.load_config()
     filled_on = args.date or date.today()
@@ -373,6 +380,8 @@ def cmd_month(args: argparse.Namespace) -> None:
         print("Dry run: nothing recorded.")
     elif replaced:
         print(f"Replaced the existing record for {key}{'' if diff else ' (same values)'}.")
+    if cfg.open_payslip and not args.no_open:
+        open_payslip(output)
 
 
 def cmd_year(args: argparse.Namespace) -> None:
@@ -438,6 +447,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="don't ask: replace a differing record, move a past transfer date to tomorrow",
     )
+    p.add_argument("--no-open", action="store_true", help="don't open the payslip afterwards")
     p.add_argument(
         "-n",
         "--dry-run",

@@ -20,7 +20,9 @@ uv run sva-form year 2026         # year-end summary
 The payroll month is the month of the most recent workday (default: Monday)
 on or before the filling date. Re-running `month` for the same month replaces
 its record. Without hours, `month` asks for them and suggests the previous
-month's hours per workday times this month's number of workdays.
+month's hours per workday times this month's number of workdays. On macOS the
+payslip is opened afterwards (`--no-open` or `open_payslip = false` to turn
+this off).
 
 The transfer date ("Überweisung am") defaults to the Thursday after the last
 Monday of the month if that Thursday is still in the month; otherwise to the
