@@ -295,6 +295,15 @@ def test_qr_bill_data(env):
     assert "93.55" in lines and "Lohn September 2026" in lines and "NON" in lines
 
 
+def test_qr_output_dir(env):
+    path = env / "config" / "sva-form" / "config.toml"
+    path.write_text(f'qr_output_dir = "{env / "qr"}"\n' + path.read_text())
+    cli.main(["month", "12", "--date", "2026-10-26"])
+    assert (env / "qr" / "qr-zahlung-2026-10.pdf").exists()
+    assert (env / "out" / "ahv-formular-stundenlohnabrechnung-2026-10.pdf").exists()
+    assert not (env / "out" / "qr-zahlung-2026-10.pdf").exists()
+
+
 def test_month_writes_qr_bill(env, monkeypatch):
     cli.main(["month", "12", "--date", "2026-10-26"])
     qr = env / "out" / "qr-zahlung-2026-10.pdf"

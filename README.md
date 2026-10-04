@@ -34,7 +34,9 @@ last day of the month). Override it with `--paid-on`.
 - PDFs: `output_dir` from the config, default the current directory:
   `ahv-formular-stundenlohnabrechnung-YYYY-MM.pdf` (payslip) and
   `qr-zahlung-YYYY-MM.pdf` (Swiss QR-bill for the payout, to upload in
-  e-banking; the transfer date has to be set there).
+  e-banking; the transfer date has to be set there). Set `qr_output_dir` to
+  write the QR-bill elsewhere, e.g. `~/Downloads`; in dry run it is always
+  written next to `test.pdf`.
 
 ## Calculation
 

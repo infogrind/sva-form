@@ -205,7 +205,10 @@ def cmd_month(args: argparse.Namespace) -> None:
         output = args.output or Path("test.pdf")
     else:
         output = args.output or cfg.output_dir / output_filename(year, month)
-    qr_output = output.parent / ("test-qr.pdf" if args.dry_run else qr_filename(year, month))
+    if args.dry_run:
+        qr_output = output.parent / "test-qr.pdf"
+    else:
+        qr_output = (cfg.qr_output_dir or output.parent) / qr_filename(year, month)
     fill_form(form_values(cfg, slip, year, month, filled_on, paid_on), output)
     write_qr_bill(cfg, slip.payout, qr_message(year, month, slip.hours), qr_output)
     key = f"{year}-{month:02d}"

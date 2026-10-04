@@ -21,6 +21,8 @@ place = "Zürich"
 workday = "monday"
 # Where the generated PDFs are written (default: current directory).
 # output_dir = "~/Documents/Lohnabrechnungen"
+# Where the QR-bill for e-banking is written (default: output_dir).
+# qr_output_dir = "~/Downloads"
 
 [employer]
 name = "Vorname Nachname"
@@ -88,6 +90,7 @@ class Config:
     place: str = "Zürich"
     workday: int = 0
     output_dir: Path = Path(".")
+    qr_output_dir: Path | None = None
     rates: Rates = field(default_factory=Rates)
 
 
@@ -115,6 +118,9 @@ def load_config(path: Path | None = None) -> Config:
             place=raw.get("place", "Zürich"),
             workday=WEEKDAYS.index(workday),
             output_dir=Path(raw.get("output_dir", ".")).expanduser(),
+            qr_output_dir=Path(raw["qr_output_dir"]).expanduser()
+            if "qr_output_dir" in raw
+            else None,
             rates=Rates.from_mapping(raw.get("rates", {})),
         )
     except KeyError as e:
