@@ -9,6 +9,7 @@ SVA bill.
 
 ```sh
 uv run sva-form init              # create ~/.config/sva-form/config.toml
+uv run sva-form month             # asks for the hours (suggestion from last month)
 uv run sva-form month 13.5        # payslip + QR-bill for the month of the last Monday
 uv run sva-form month 13.5 --dry-run   # writes ./test.pdf and ./test-qr.pdf, records nothing
 uv run sva-form month 12 --month 2026-08 --date 2026-09-01 --paid-on 2026-09-02
@@ -18,7 +19,8 @@ uv run sva-form year 2026         # year-end summary
 
 The payroll month is the month of the most recent workday (default: Monday)
 on or before the filling date. Re-running `month` for the same month replaces
-its record.
+its record. Without hours, `month` asks for them and suggests the previous
+month's hours per workday times this month's number of workdays.
 
 The transfer date ("Überweisung am") defaults to the Thursday after the last
 Monday of the month if that Thursday is still in the month; otherwise to the

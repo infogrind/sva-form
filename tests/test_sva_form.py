@@ -10,6 +10,7 @@ from sva_form.calc import (
     EmployerBill,
     Payslip,
     Rates,
+    count_weekdays,
     money,
     month_label,
     parse_month_label,
@@ -153,6 +154,12 @@ def test_month_labels():
 def test_unknown_rate_rejected():
     with pytest.raises(ValueError, match="ahvv"):
         Rates().with_overrides({"ahvv": 5})
+
+
+def test_count_weekdays():
+    assert count_weekdays(2026, 9, 0) == 4  # Mondays 7, 14, 21, 28
+    assert count_weekdays(2026, 8, 0) == 5  # Mondays 3 ... 31
+    assert count_weekdays(2026, 2, 6) == 4  # Sundays in February
 
 
 # --- config -------------------------------------------------------------------
@@ -548,3 +555,59 @@ def test_past_transfer_date_dry_run_asks_too(env, monkeypatch, capsys, answer, s
 def test_explicit_past_transfer_date_is_kept(env, capsys):
     assert _record_september("--date", "2026-10-02", "--paid-on", "2026-09-29") == "2026-09-29"
     assert "already past" not in capsys.readouterr().out
+
+
+# --- asking for the hours ---------------------------------------------------------
+
+
+def _interactive(monkeypatch, *answers):
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    prompts, replies = [], list(answers)
+    monkeypatch.setattr("builtins.input", lambda p: prompts.append(p) or replies.pop(0))
+    return prompts
+
+
+def test_hours_suggestion_scales_by_workdays(env):
+    records = {"2026-08": {"hours": "16.25"}, "2026-07": {"hours": "99"}}  # Aug: 5 Mondays
+    assert cli.hours_suggestion(records, 2026, 9, 0) == (
+        D("13.00"),
+        "4 Montage à 3.25 h wie im August 2026",
+    )
+    assert cli.hours_suggestion(records, 2026, 7, 0) is None  # nothing earlier
+    assert cli.hours_suggestion({"2026-09": {"hours": "13"}}, 2026, 10, 0)[0] == D("13")
+
+
+@pytest.mark.parametrize(("answer", "hours"), [("", "13.00"), ("14,5", "14.5")])
+def test_month_asks_for_hours(env, monkeypatch, answer, hours):
+    cli.main(["month", "16.25", "--month", "2026-08", "--date", "2026-08-26"])
+    prompts = _interactive(monkeypatch, answer)
+    cli.main(["month", "--month", "2026-09", "--date", "2026-09-28"])
+    assert prompts == [
+        "Stunden für September 2026 [Enter = 13.00: 4 Montage à 3.25 h wie im August 2026]: "
+    ]
+    assert D(load_records()["2026-09"]["hours"]) == D(hours)
+
+
+def test_month_asks_again_after_invalid_hours(env, monkeypatch, capsys):
+    prompts = _interactive(monkeypatch, "", "abc", "-3", "12")
+    cli.main(["month", "--date", "2026-10-26"])
+    assert prompts == ["Stunden für Oktober 2026: "] * 4  # no records, no suggestion
+    assert load_records()["2026-10"]["hours"] == "12"
+    assert capsys.readouterr().out.count("Please enter the hours") == 3
+
+
+def test_month_without_hours_and_terminal(env):
+    with pytest.raises(SystemExit, match="Hours missing"):
+        cli.main(["month", "--date", "2026-10-26"])
+
+
+def test_month_hours_prompt_eof(env, monkeypatch):
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+
+    def eof(prompt):
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", eof)
+    with pytest.raises(SystemExit, match="No hours given"):
+        cli.main(["month", "--date", "2026-10-26"])
+    assert load_records() == {}

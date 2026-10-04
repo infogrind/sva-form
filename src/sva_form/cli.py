@@ -4,14 +4,16 @@ import argparse
 import re
 import sys
 from datetime import date, timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 
 from . import config as cfgmod
 from .calc import (
+    WEEKDAYS_DE_PLURAL,
     EmployerBill,
     Payslip,
     Rates,
+    count_weekdays,
     money,
     month_label,
     parse_month_label,
@@ -274,6 +276,47 @@ def _parse_month(text: str) -> tuple[int, int]:
     return int(m[1]), int(m[2])
 
 
+def hours_suggestion(
+    records: dict[str, dict], year: int, month: int, workday: int
+) -> tuple[Decimal, str] | None:
+    """Suggest hours from the latest earlier month: same hours per workday."""
+    earlier = [k for k in sorted(records) if k < f"{year}-{month:02d}"]
+    if not earlier:
+        return None
+    prev_year, prev_month = int(earlier[-1][:4]), int(earlier[-1][5:])
+    per_day = Decimal(records[earlier[-1]]["hours"]) / count_weekdays(
+        prev_year, prev_month, workday
+    )
+    days = count_weekdays(year, month, workday)
+    suggested = (per_day * days * 4).quantize(Decimal(1), rounding=ROUND_HALF_UP) / 4
+    per_day_shown = (per_day * 4).quantize(Decimal(1), rounding=ROUND_HALF_UP) / 4
+    return suggested, (
+        f"{days} {WEEKDAYS_DE_PLURAL[workday]} à {per_day_shown:.2f} h"
+        f" wie im {month_label(prev_year, prev_month)}"
+    )
+
+
+def ask_hours(year: int, month: int, suggestion: tuple[Decimal, str] | None) -> Decimal:
+    if not sys.stdin.isatty():
+        raise ConfigError("Hours missing: sva-form month <hours>")
+    hint = f" [Enter = {suggestion[0]:.2f}: {suggestion[1]}]" if suggestion else ""
+    while True:
+        try:
+            answer = input(f"Stunden für {month_label(year, month)}{hint}: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            raise ConfigError("No hours given; nothing written.") from None
+        if not answer and suggestion:
+            return suggestion[0]
+        try:
+            hours = Decimal(answer.replace(",", "."))
+        except InvalidOperation:
+            hours = None
+        if hours is not None and hours.is_finite() and hours > 0:
+            return hours
+        print(f"Please enter the hours as a number, e.g. 13.5 (got {answer!r}).")
+
+
 def cmd_month(args: argparse.Namespace) -> None:
     cfg = cfgmod.load_config()
     filled_on = args.date or date.today()
@@ -282,10 +325,13 @@ def cmd_month(args: argparse.Namespace) -> None:
     if warning:
         print(f"Warning: {warning}", file=sys.stderr)
     records = cfgmod.load_records()
+    hours = args.hours or ask_hours(
+        year, month, hours_suggestion(records, year, month, cfg.workday)
+    )
     paid_on = args.paid_on or transfer_date(
         payment_date(year, month, cfg.workday), filled_on, args.yes
     )
-    slip = Payslip(args.hours, cfg.hourly_rate, rates)
+    slip = Payslip(hours, cfg.hourly_rate, rates)
     if args.dry_run:
         output_dir = args.output_dir or Path(".")
         output = output_dir / "test.pdf"
@@ -366,7 +412,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(required=True)
 
     p = sub.add_parser("month", help="create the payslip PDF for a month and record it")
-    p.add_argument("hours", type=_parse_decimal, help="total hours worked in the month")
+    p.add_argument(
+        "hours",
+        type=_parse_decimal,
+        nargs="?",
+        help="total hours worked in the month (asked for if omitted)",
+    )
     p.add_argument(
         "--month", type=_parse_month, help="YYYY-MM (default: month of the last workday)"
     )

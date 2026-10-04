@@ -6,6 +6,15 @@ from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
 WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+WEEKDAYS_DE_PLURAL = [
+    "Montage",
+    "Dienstage",
+    "Mittwoche",
+    "Donnerstage",
+    "Freitage",
+    "Samstage",
+    "Sonntage",
+]
 
 MONTHS_DE = [
     "Januar",
@@ -72,6 +81,13 @@ def payroll_month(today: date, workday: int = 0) -> tuple[int, int]:
     """Month of the most recent `workday` (0 = Monday) on or before `today`."""
     last_workday = today - timedelta(days=(today.weekday() - workday) % 7)
     return last_workday.year, last_workday.month
+
+
+def count_weekdays(year: int, month: int, weekday: int) -> int:
+    """Number of e.g. Mondays (weekday 0) in a month."""
+    first_weekday, days = calendar.monthrange(year, month)
+    first = 1 + (weekday - first_weekday) % 7
+    return (days - first) // 7 + 1
 
 
 def last_weekday_of_month(year: int, month: int, weekday: int) -> date:
