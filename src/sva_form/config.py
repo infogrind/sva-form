@@ -2,8 +2,10 @@
 
 import json
 import os
+import re
 import tomllib
 from dataclasses import dataclass, field
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -36,9 +38,19 @@ address = ["Strasse 1", "8000 Zürich"]
 ahv_number = "756.0000.0000.00"
 iban = "CH00 0000 0000 0000 0000 0"
 # bank = "Bank, Ort"   # optional, printed below the IBAN
+# birth_date = "31.12.1980"   # for the year-end Lohndeklaration
 
 [wage]
 hourly_rate = 30.00
+
+# For the year-end Lohndeklaration (`sva-form declaration`); all optional,
+# missing values are left blank on the form.
+# [declaration]
+# account_number = "000.000"          # Abrechnungs-Nr. of SVA Zürich
+# contact_phone = "044 000 00 00"
+# contact_email = "name@example.com"
+# refund_iban = "CH00 0000 0000 0000 0000 0"   # for refunds, account of the employer
+# accident_insurance = "Versicherung"  # obligatory accident insurance (UVG)
 
 # Optional overrides of the built-in rates (all in percent). sva-form warns
 # when it runs for a year whose rates it doesn't know; check them at
@@ -86,6 +98,25 @@ class Person:
     def block(self) -> str:
         return "\n".join([self.name, *self.address])
 
+    @property
+    def first_name(self) -> str:
+        return self.name.rsplit(" ", 1)[0]
+
+    @property
+    def last_name(self) -> str:
+        return self.name.rsplit(" ", 1)[-1]
+
+
+@dataclass(frozen=True)
+class Declaration:
+    """Settings only needed for the year-end Lohndeklaration."""
+
+    account_number: str = ""
+    contact_phone: str = ""
+    contact_email: str = ""
+    refund_iban: str = ""
+    accident_insurance: str = ""
+
 
 @dataclass(frozen=True)
 class Config:
@@ -100,6 +131,8 @@ class Config:
     output_dir: Path = Path(".")
     qr_output_dir: Path | None = None
     open_payslip: bool = True
+    birth_date: str = ""
+    declaration: Declaration = field(default_factory=Declaration)
     rate_overrides: dict = field(default_factory=dict)  # [rates]: all years
     year_rate_overrides: dict[int, dict] = field(default_factory=dict)  # [rates.YYYY]
 
@@ -149,12 +182,29 @@ def load_config(path: Path | None = None) -> Config:
             if "qr_output_dir" in raw
             else None,
             open_payslip=bool(raw.get("open_payslip", True)),
+            birth_date=_birth_date(employee.get("birth_date", "")),
+            declaration=_declaration(raw.get("declaration", {})),
             **_rate_overrides(raw.get("rates", {})),
         )
     except KeyError as e:
         raise ConfigError(f"Missing setting {e} in {path}") from e
     except (tomllib.TOMLDecodeError, ValueError) as e:
         raise ConfigError(f"Invalid config {path}: {e}") from e
+
+
+def _birth_date(text: str) -> str:
+    if text and not re.fullmatch(r"\d{2}\.\d{2}\.\d{4}", text):
+        raise ValueError(f"birth_date must be DD.MM.YYYY, got {text!r}")
+    if text:
+        datetime.strptime(text, "%d.%m.%Y")  # raises ValueError for e.g. 31.02.
+    return text
+
+
+def _declaration(table: dict) -> Declaration:
+    unknown = set(table) - set(Declaration.__dataclass_fields__)
+    if unknown:
+        raise ValueError(f"Unknown setting(s) in [declaration]: {', '.join(sorted(unknown))}")
+    return Declaration(**{k: str(v) for k, v in table.items()})
 
 
 def _rate_overrides(table: dict) -> dict:

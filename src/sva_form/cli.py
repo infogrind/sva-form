@@ -22,6 +22,7 @@ from .calc import (
     payroll_month,
 )
 from .config import Config, ConfigError
+from .declaration import declaration_filename, declaration_values, validate_template
 from .pdf import fill_form, read_form
 from .qr import write_qr_bill
 
@@ -318,8 +319,8 @@ def ask_hours(year: int, month: int, suggestion: tuple[Decimal, str] | None) -> 
         print(f"Please enter the hours as a number, e.g. 13.5 (got {answer!r}).")
 
 
-def open_payslip(path: Path) -> None:
-    """Show the payslip in the default PDF viewer (macOS, interactive runs only)."""
+def open_pdf(path: Path) -> None:
+    """Show a generated PDF in the default viewer (macOS, interactive runs only)."""
     if sys.platform == "darwin" and sys.stdin.isatty():
         subprocess.run(["open", str(path)], check=False)
 
@@ -381,7 +382,7 @@ def cmd_month(args: argparse.Namespace) -> None:
     elif replaced:
         print(f"Replaced the existing record for {key}{'' if diff else ' (same values)'}.")
     if cfg.open_payslip and not args.no_open:
-        open_payslip(output)
+        open_pdf(output)
 
 
 def cmd_year(args: argparse.Namespace) -> None:
@@ -394,6 +395,34 @@ def cmd_year(args: argparse.Namespace) -> None:
     if warning:
         print(f"Warning: {warning}", file=sys.stderr)
     print(year_report(records, year, cfg, rates))
+
+
+def cmd_declaration(args: argparse.Namespace) -> None:
+    cfg = cfgmod.load_config()
+    year = args.year
+    rates, warning = cfg.rates_for(year)
+    if warning:
+        print(f"Warning: {warning}", file=sys.stderr)
+    validate_template(args.template, year)
+    form = declaration_values(cfg, cfgmod.load_records(), year, rates, args.date or date.today())
+    output = (args.output_dir or cfg.output_dir) / declaration_filename(year)
+    fill_form(form.values, output, template=args.template)
+
+    v = form.values
+    print(f"Lohndeklaration {year} – {cfg.employee.name}")
+    print(f"  Beschäftigt von/bis          {v['Von.0.0']}–{v['Bis.0.0']}")
+    print(f"  Bruttolohn                   {chf(Decimal(v['Pflichtig.0.0'])):>10}")
+    print(f"  Total AHV/IV/EO, FAK, ALV    {chf(Decimal(v['TotalPflichtig.0'])):>10}")
+    if "keine BVG-Anschlusspflicht" in v:
+        print("  BVG: keine Anschlusspflicht (Lohn unter der Eintrittsschwelle)")
+    print(f"PDF: {output}")
+    if form.missing:
+        print("Left blank – fill in by hand or add to the config:")
+        for item in form.missing:
+            print(f"  - {item}")
+    print("Please check the form and sign it (Unterschrift) before sending it.")
+    if cfg.open_payslip and not args.no_open:
+        open_pdf(output)
 
 
 def cmd_import(args: argparse.Namespace) -> None:
@@ -459,6 +488,22 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("year", help="year-end summary incl. expected SVA bill")
     p.add_argument("year", type=int, nargs="?", help="default: latest year with records")
     p.set_defaults(func=cmd_year)
+
+    p = sub.add_parser("declaration", help="fill the year-end Lohndeklaration form")
+    p.add_argument("year", type=int, help="year to declare, e.g. 2025")
+    p.add_argument(
+        "-t",
+        "--template",
+        type=Path,
+        required=True,
+        help="the blank 'Lohndeklaration für Hausangestellte' PDF for that year from svazurich.ch",
+    )
+    p.add_argument("--date", type=date.fromisoformat, help="date for 'Ort und Datum'")
+    p.add_argument(
+        "-o", "--output-dir", type=Path, help="folder for the filled form (default: output_dir)"
+    )
+    p.add_argument("--no-open", action="store_true", help="don't open the form afterwards")
+    p.set_defaults(func=cmd_declaration)
 
     p = sub.add_parser("import", help="record months from previously filled PDF forms")
     p.add_argument("pdfs", type=Path, nargs="+")

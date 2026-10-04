@@ -36,7 +36,7 @@ CENT = Decimal("0.01")
 
 @dataclass(frozen=True)
 class Rates:
-    """All rates in percent. Defaults are valid for 2026 (SVA Zürich, private households)."""
+    """Rates in percent (and the BVG threshold in CHF); defaults are valid for 2025/2026."""
 
     vacation: Decimal = Decimal("8.33")  # Ferienzuschlag, 4 weeks vacation
     ahv: Decimal = Decimal("5.3")  # AHV/IV/EO, employee share
@@ -46,6 +46,7 @@ class Rates:
     employer_alv: Decimal = Decimal("2.2")  # ALV billed: employer + employee share
     fak: Decimal = Decimal("1.025")  # Familienausgleichskasse, employer only
     admin: Decimal = Decimal("5")  # Verwaltungskosten, % of the AHV/IV/EO contributions
+    bvg_threshold: Decimal = Decimal("22680")  # BVG Eintrittsschwelle, CHF per year
 
     def with_overrides(self, overrides: dict) -> "Rates":
         unknown = set(overrides) - set(self.__dataclass_fields__)

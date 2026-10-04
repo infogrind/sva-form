@@ -15,6 +15,7 @@ uv run sva-form month 13.5 --dry-run   # writes ./test.pdf and ./test-qr.pdf, re
 uv run sva-form month 12 --month 2026-08 --date 2026-09-01 --paid-on 2026-09-02
 uv run sva-form import ~/old/ahv-formular-*.pdf   # record earlier, hand-filled forms
 uv run sva-form year 2026         # year-end summary
+uv run sva-form declaration 2026 -t lohndeklaration-2026.pdf   # fill the year-end form
 ```
 
 The payroll month is the month of the most recent workday (default: Monday)
@@ -60,6 +61,22 @@ ALV 2.2 % (employer and employee share), FAK 1.025 %, Steuerabzug 5 %, and
 Verwaltungskosten of 5 % of the AHV/IV/EO contributions. The employee shares
 and the tax were already withheld from the wage, so the employer's own extra
 cost is the bill minus the withheld deductions.
+
+## Year-end Lohndeklaration
+
+SVA Zürich publishes the form "Lohndeklaration für Hausangestellte und
+Hauswartung" anew every year, with the year printed in it. Download the blank
+form for the year and pass it with `--template`; `declaration` checks that it
+is this form and for the right year, then fills in the employee row
+(employment period from the first to the last recorded month, Bruttolohn =
+Beitragspflichtiger Lohn rounded to whole francs), the totals, the same totals as estimate for the
+next year, "Lohnauszahlung" and, below the BVG threshold, "keine
+BVG-Anschlusspflicht". The result is written to
+`output_dir/lohndeklaration-YYYY.pdf`.
+
+Some values come from optional settings (`birth_date` under `[employee]`, and
+a `[declaration]` section, see `sva-form init`). Anything missing is left
+blank and listed, to fill in by hand. The form still needs to be signed.
 
 ## Rates
 

@@ -1,11 +1,12 @@
 import re
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
-from pypdf import PdfReader
+from pypdf import PdfReader, PdfWriter
 
-from sva_form import cli
+from sva_form import cli, declaration
 from sva_form.calc import (
     EmployerBill,
     Payslip,
@@ -19,7 +20,8 @@ from sva_form.calc import (
     round_5rp,
 )
 from sva_form.config import ConfigError, Person, init_config, load_config, load_records
-from sva_form.pdf import read_form
+from sva_form.declaration import TemplateError, validate_template
+from sva_form.pdf import TEMPLATE, read_form
 from sva_form.qr import build_qr_bill, structured_address
 
 D = Decimal
@@ -643,3 +645,186 @@ def test_open_payslip(env, monkeypatch, platform, tty, extra, config, opened):
     cli.main(["month", "12", "--date", "2026-10-26", *extra])
     pdf = env / "out" / "ahv-formular-stundenlohnabrechnung-2026-10.pdf"
     assert calls == ([["open", str(pdf)]] if opened else [])
+
+
+# --- year-end Lohndeklaration ---------------------------------------------------
+
+DECLARATION_2025 = Path(__file__).parent / "data" / "lohndeklaration-2025.pdf"
+
+
+def _add_config(env, text: str) -> None:
+    path = env / "config" / "sva-form" / "config.toml"
+    config = path.read_text()
+    # top-level keys must come before the first table
+    if "=" in text.splitlines()[0] and not text.startswith("["):
+        path.write_text(text + config)
+    else:
+        path.write_text(config + "\n" + text)
+
+
+def _employee_birth_date(env, birth_date: str) -> None:
+    path = env / "config" / "sva-form" / "config.toml"
+    path.write_text(path.read_text().replace("[wage]", f'birth_date = "{birth_date}"\n\n[wage]'))
+
+
+def _records(months: dict[str, str]) -> dict[str, dict]:
+    return {key: {"base": base} for key, base in months.items()}
+
+
+def test_person_names():
+    assert Person("Anna Maria Beispiel", []).first_name == "Anna Maria"
+    assert Person("Anna Maria Beispiel", []).last_name == "Beispiel"
+
+
+def test_validate_template_accepts_matching_year():
+    validate_template(DECLARATION_2025, 2025)
+
+
+def test_validate_template_rejects_other_year():
+    with pytest.raises(TemplateError, match="is the form for 2025, not 2026"):
+        validate_template(DECLARATION_2025, 2026)
+
+
+def test_validate_template_rejects_other_form():
+    with pytest.raises(TemplateError, match="not the expected form .missing fields: abrech"):
+        validate_template(TEMPLATE, 2025)
+
+
+def test_validate_template_rejects_non_pdf(tmp_path):
+    path = tmp_path / "x.pdf"
+    path.write_text("not a pdf")
+    with pytest.raises(TemplateError, match="Cannot read"):
+        validate_template(path, 2025)
+    with pytest.raises(TemplateError, match="Cannot read"):
+        validate_template(tmp_path / "missing.pdf", 2025)
+
+
+def test_template_year(tmp_path):
+    writer = PdfWriter(clone_from=DECLARATION_2025)
+    writer.add_metadata({"/Title": "Formular"})
+    path = tmp_path / "x.pdf"
+    writer.write(path)
+    assert declaration.template_year(PdfReader(path)) == 2025  # from the page text
+
+    class NoYear:
+        metadata = {"/Title": "Formular"}
+        pages = [type("Page", (), {"extract_text": lambda self: "Lohnabrechnung"})()]
+
+    assert declaration.template_year(NoYear()) is None
+
+
+def test_validate_template_without_year(monkeypatch):
+    monkeypatch.setattr(declaration, "template_year", lambda reader: None)
+    with pytest.raises(TemplateError, match="Cannot tell which year"):
+        validate_template(DECLARATION_2025, 2025)
+
+
+def test_validate_template_missing_checkbox_state(monkeypatch):
+    monkeypatch.setitem(declaration.CHECKBOXES, "Lohnauszahlung1", "/yes")
+    with pytest.raises(TemplateError, match="checkbox 'Lohnauszahlung1' has no /yes state"):
+        validate_template(DECLARATION_2025, 2025)
+
+
+def test_declaration_values(env):
+    _employee_birth_date(env, "15.04.1975")
+    _add_config(
+        env,
+        '[declaration]\naccount_number = "123.456"\naccident_insurance = "Unfall AG"\n'
+        'refund_iban = "CH93 0076 2011 6238 5295 7"\n',
+    )
+    cfg = load_config()
+    records = _records({"2025-03": "100.204", "2025-02": "200", "2026-01": "999"})
+    form = declaration.declaration_values(cfg, records, 2025, Rates(), date(2026, 1, 10))
+    v = form.values
+    assert v["Von.0.0"] == "01.02."
+    assert v["Bis.0.0"] == "31.03."
+    assert v["Pflichtig.0.0"] == "300.00"
+    assert v["TotalPflichtig.0"] == v["TotalFAK.0"] == v["TotalALV.0"] == "300.00"
+    assert v["feld1"] == v["feld2"] == v["feld3"] == "300.00"
+    assert v["Name.0.0"] == "Beispiel" and v["Vorname.0.0"] == "Anna"
+    assert v["Geburtsdatum.0.0"] == "15.04.1975"
+    assert v["firmenadresse"] == "Muster Erika, Musterweg 1, 8000 Zürich"
+    assert v["IBAN_Nr"] == "9300762011623852957"  # "CH" is printed on the form
+    assert v["Zahlungsverbindung_Rückzahlung"] == "Erika Muster"
+    assert v["Lohnauszahlung1"] == v["keine BVG-Anschlusspflicht"] == "/ja"
+    assert v["ort_datum"] == "Zürich, 10.01.2026"
+    assert form.missing == []
+
+
+@pytest.mark.parametrize(
+    ("base", "declared"), [("4679.86", "4680.00"), ("4679.49", "4679.00"), ("4679.50", "4680.00")]
+)
+def test_declaration_wage_rounded_to_whole_francs(env, base, declared):
+    form = declaration.declaration_values(
+        load_config(), _records({"2025-12": base}), 2025, Rates(), date(2026, 1, 10)
+    )
+    assert form.values["Bis.0.0"] == "31.12."
+    assert form.values["Pflichtig.0.0"] == declared
+    assert form.values["TotalPflichtig.0"] == form.values["feld1"] == declared
+
+
+def test_declaration_missing_settings_and_bvg(env):
+    form = declaration.declaration_values(
+        load_config(), _records({"2025-06": "30000"}), 2025, Rates(), date(2026, 1, 10)
+    )
+    assert "keine BVG-Anschlusspflicht" not in form.values
+    assert form.values["IBAN_Nr"] == form.values["Zahlungsverbindung_Rückzahlung"] == ""
+    assert [m.split(" (")[0] for m in form.missing] == [
+        "Abrechnungs-Nr.",
+        "Geburtsdatum",
+        "Unfallversicherung",
+        "Berufliche Vorsorge",
+    ]
+
+
+def test_declaration_without_records(env):
+    with pytest.raises(ConfigError, match="No records for 2025"):
+        declaration.declaration_values(load_config(), {}, 2025, Rates(), date(2026, 1, 10))
+
+
+def test_declaration_command(env, monkeypatch, capsys):
+    _employee_birth_date(env, "15.04.1975")
+    for month in ["2025-11", "2025-12"]:
+        cli.main(["month", "13", "--month", month, "--date", f"{month}-24"])
+    capsys.readouterr()
+    monkeypatch.setattr("sys.platform", "darwin")
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    calls = []
+    monkeypatch.setattr(cli.subprocess, "run", lambda cmd, **kw: calls.append(cmd))
+    cli.main(["declaration", "2025", "-t", str(DECLARATION_2025), "--date", "2026-01-10"])
+    out = capsys.readouterr().out
+    pdf = env / "out" / "lohndeklaration-2025.pdf"
+    fields = read_form(pdf)
+    assert fields["AHVnr.0.0"] == "756.1234.5678.97"
+    assert fields["Von.0.0"] == "01.11." and fields["Bis.0.0"] == "31.12."
+    assert fields["Lohnauszahlung1"] == "/ja"
+    assert fields["Pflichtig.0.0"] == "845.00"  # 2 x 13 h x 30 x 1.0833 = 844.97
+    assert fields["TotalPflichtig.0"] == "845.00"
+    assert "Beschäftigt von/bis          01.11.–31.12." in out
+    assert "BVG: keine Anschlusspflicht" in out
+    assert "Left blank" in out and "Abrechnungs-Nr." in out
+    assert calls == [["open", str(pdf)]]
+
+    capsys.readouterr()
+    cli.main(["declaration", "2025", "-t", str(DECLARATION_2025), "--no-open", "-o", str(env)])
+    assert (env / "lohndeklaration-2025.pdf").exists()
+    assert len(calls) == 1
+
+
+def test_declaration_command_checks_template_and_rates(env, capsys):
+    with pytest.raises(SystemExit, match="is the form for 2025, not 2027"):
+        cli.main(["declaration", "2027", "-t", str(DECLARATION_2025)])
+    assert "rates for 2027 have not been verified" in capsys.readouterr().err
+
+
+def test_declaration_without_full_config(env):
+    _add_config(env, "[declaration]\naccount = 1\n")
+    with pytest.raises(ConfigError, match=r"Unknown setting\(s\) in \[declaration\]: account"):
+        load_config()
+
+
+@pytest.mark.parametrize("birth_date", ["1975-04-15", "31.02.1975"])
+def test_invalid_birth_date(env, birth_date):
+    _employee_birth_date(env, birth_date)
+    with pytest.raises(ConfigError, match="Invalid config"):
+        load_config()
