@@ -208,9 +208,83 @@ def test_month_creates_pdf_and_record(env, capsys):
     assert record["payout"] == "93.55"
     assert "Auszahlung" in capsys.readouterr().out
 
-    cli.main(["month", "4", "--month", "2026-09", "--date", "2026-10-02"])
+    cli.main(["month", "4", "--month", "2026-09", "--date", "2026-10-02", "--yes"])
     assert load_records()["2026-09"]["hours"] == "4"
     assert "Replaced" in capsys.readouterr().out
+
+
+# --- re-recording a month ----------------------------------------------------------
+
+
+def _record_october(hours: str, *extra: str) -> None:
+    cli.main(["month", hours, "--date", "2026-10-26", *extra])
+
+
+def test_rerun_with_same_values_replaces_silently(env, capsys):
+    _record_october("12")
+    capsys.readouterr()
+    _record_october("12", "--date", "2026-10-28")  # only the filling date differs
+    out = capsys.readouterr().out
+    assert "Replaced the existing record for 2026-10 (same values)." in out
+    assert "differs" not in out
+    assert load_records()["2026-10"]["filled_on"] == "2026-10-28"
+
+
+def test_rerun_with_different_values_shows_diff_and_aborts_without_tty(env, capsys):
+    _record_october("12")
+    pdf = env / "out" / "ahv-formular-stundenlohnabrechnung-2026-10.pdf"
+    before = pdf.read_bytes()
+    capsys.readouterr()
+    with pytest.raises(SystemExit, match="Kept the stored record for 2026-10"):
+        _record_october("13")
+    out = capsys.readouterr().out
+    assert re.search(r"Stunden +12\.00 +13\.00", out)
+    assert re.search(r"Auszahlung +\S+ +\S+", out)
+    assert "Überweisung am" not in out  # unchanged fields are not listed
+    assert load_records()["2026-10"]["hours"] == "12"
+    assert pdf.read_bytes() == before
+
+
+@pytest.mark.parametrize(("answer", "replaced"), [("y", True), ("ja", True), ("", False)])
+def test_rerun_with_different_values_asks(env, monkeypatch, capsys, answer, replaced):
+    _record_october("12")
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda prompt: answer)
+    if replaced:
+        _record_october("13")
+        assert load_records()["2026-10"]["hours"] == "13"
+    else:
+        with pytest.raises(SystemExit):
+            _record_october("13")
+        assert load_records()["2026-10"]["hours"] == "12"
+
+
+def test_rerun_prompt_eof_means_no(env, monkeypatch):
+    _record_october("12")
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+
+    def eof(prompt):
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", eof)
+    with pytest.raises(SystemExit, match="Kept the stored record"):
+        _record_october("13")
+
+
+def test_dry_run_shows_diff_without_asking(env, monkeypatch, capsys):
+    _record_october("12")
+    monkeypatch.chdir(env)
+    capsys.readouterr()
+    _record_october("13", "--dry-run")
+    out = capsys.readouterr().out
+    assert "Note: differs from the stored record for 2026-10" in out
+    assert load_records()["2026-10"]["hours"] == "12"
+
+
+def test_record_diff_ignores_formatting_of_imported_amounts():
+    old = {"hours": "3.25", "payout": "93.6", "ahv": "5.571547312500001", "paid_on": "2026-09-29"}
+    new = {"hours": "3.2500", "payout": "93.60", "ahv": "5.5715473125", "paid_on": "2026-09-29"}
+    assert cli.record_diff(old, new) == []
 
 
 def test_import_roundtrip(env):

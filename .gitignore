@@ -10,3 +10,4 @@ ahv-formular-stundenlohnabrechnung-*.pdf
 test.pdf
 test-qr.pdf
 qr-zahlung-*.pdf
+.coverage

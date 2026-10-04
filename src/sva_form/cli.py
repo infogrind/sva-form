@@ -101,6 +101,57 @@ def record_from_payslip(slip: Payslip, filled_on: date, paid_on: date, pdf: Path
     }
 
 
+# Fields compared when a month is recorded again (filling date and PDF path
+# are expected to change and are ignored).
+COMPARED_FIELDS = [
+    ("hours", "Stunden"),
+    ("hourly_rate", "Stundenlohn"),
+    ("gross", "Grundlohn"),
+    ("vacation", "Ferienzuschlag"),
+    ("base", "Beitragspfl. Lohn"),
+    ("ahv", "AHV/IV/EO"),
+    ("alv", "ALV"),
+    ("tax", "Steuerabzug"),
+    ("total_deductions", "Total Abzüge"),
+    ("payout", "Auszahlung"),
+    ("paid_on", "Überweisung am"),
+]
+
+
+def record_diff(old: dict, new: dict) -> list[tuple[str, str, str]]:
+    """(label, stored, new) for each field that differs; amounts compared to the Rappen."""
+    diff = []
+    for key, label in COMPARED_FIELDS:
+        a, b = old.get(key), new.get(key)
+        if key == "paid_on":
+            same = a == b
+            shown = (a or "–", b or "–")
+        else:
+            a, b = Decimal(a or 0), Decimal(b or 0)
+            same = money(a) == money(b)
+            shown = (chf(a), chf(b))
+        if not same:
+            diff.append((label, *shown))
+    return diff
+
+
+def confirm_replace(key: str, diff: list[tuple[str, str, str]], assume_yes: bool) -> bool:
+    print(f"The stored record for {key} differs:")
+    print(f"  {'':<20}{'gespeichert':>14}{'neu':>14}")
+    for label, old, new in diff:
+        print(f"  {label:<20}{old:>14}{new:>14}")
+    if assume_yes:
+        return True
+    if not sys.stdin.isatty():
+        return False
+    try:
+        answer = input(f"Replace the record for {key}? [y/N] ")
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return False
+    return answer.strip().lower() in ("y", "yes", "j", "ja")
+
+
 def _parse_swiss_date(text: str) -> str | None:
     m = re.search(r"(\d{1,2})\.(\d{1,2})\.(\d{4})", text)
     return date(int(m[3]), int(m[2]), int(m[1])).isoformat() if m else None
@@ -209,12 +260,20 @@ def cmd_month(args: argparse.Namespace) -> None:
         output_dir = args.output_dir or cfg.output_dir
         output = output_dir / output_filename(year, month)
         qr_output = (cfg.qr_output_dir or output_dir) / qr_filename(year, month)
+    key = f"{year}-{month:02d}"
+    record = record_from_payslip(slip, filled_on, paid_on, output.resolve())
+    stored = cfgmod.load_records().get(key)
+    diff = record_diff(stored, record) if stored else []
+    if diff and args.dry_run:
+        print(f"Note: differs from the stored record for {key}:")
+        for label, old, new in diff:
+            print(f"  {label:<20}{old:>14}{new:>14}")
+    elif diff and not confirm_replace(key, diff, args.yes):
+        raise ConfigError(f"Kept the stored record for {key}; nothing written.")
+
     fill_form(form_values(cfg, slip, year, month, filled_on, paid_on), output)
     write_qr_bill(cfg, slip.payout, qr_message(year, month, slip.hours), qr_output)
-    key = f"{year}-{month:02d}"
-    replaced = not args.dry_run and cfgmod.save_record(
-        key, record_from_payslip(slip, filled_on, paid_on, output.resolve())
-    )
+    replaced = not args.dry_run and cfgmod.save_record(key, record)
 
     print(f"Lohnabrechnung {month_label(year, month)} – {cfg.employee.name}")
     print(f"  {slip.hours} Stunden à CHF {chf(slip.hourly_rate)}")
@@ -234,7 +293,7 @@ def cmd_month(args: argparse.Namespace) -> None:
     if args.dry_run:
         print("Dry run: nothing recorded.")
     elif replaced:
-        print(f"Replaced the existing record for {key}.")
+        print(f"Replaced the existing record for {key}{'' if diff else ' (same values)'}.")
 
 
 def cmd_year(args: argparse.Namespace) -> None:
@@ -285,6 +344,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "-o", "--output-dir", type=Path, help="folder for the payslip (default: output_dir)"
+    )
+    p.add_argument(
+        "-y", "--yes", action="store_true", help="replace a differing stored record without asking"
     )
     p.add_argument(
         "-n",
