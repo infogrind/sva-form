@@ -23,7 +23,9 @@ its record.
 The transfer date ("Überweisung am") defaults to the Thursday after the last
 Monday of the month if that Thursday is still in the month; otherwise to the
 Tuesday after the last Monday (in the next month only if that Monday is the
-last day of the month). Override it with `--paid-on`.
+last day of the month). If that date is already past, `month` asks whether to
+use tomorrow instead (without asking with `--yes` or without a terminal).
+Override it with `--paid-on`.
 
 ## Files
 

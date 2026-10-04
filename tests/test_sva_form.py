@@ -467,3 +467,54 @@ def test_year_without_records(env, capsys):
     capsys.readouterr()
     cli.main(["year", "2025"])
     assert capsys.readouterr().out.strip() == "No records for 2025."
+
+
+# --- transfer date already past --------------------------------------------------
+# September 2026: the usual transfer date is Tuesday 29.09.
+
+
+def _record_september(*extra: str) -> str:
+    cli.main(["month", "12", "--month", "2026-09", *extra])
+    return load_records()["2026-09"]["paid_on"]
+
+
+def test_transfer_date_not_past_is_kept(env, capsys):
+    assert _record_september("--date", "2026-09-28") == "2026-09-29"
+    assert _record_september("--date", "2026-09-29", "--yes") == "2026-09-29"  # today is fine
+    assert "already past" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("answer", "expected"),
+    [("", "2026-10-03"), ("y", "2026-10-03"), ("ja", "2026-10-03"), ("n", "2026-09-29")],
+)
+def test_past_transfer_date_asks(env, monkeypatch, capsys, answer, expected):
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    prompts = []
+    monkeypatch.setattr("builtins.input", lambda prompt: prompts.append(prompt) or answer)
+    assert _record_september("--date", "2026-10-02") == expected
+    assert prompts == ["Use tomorrow (03.10.2026) instead? [Y/n] "]
+    assert "The usual transfer date 29.09.2026 is already past." in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("extra", [[], ["--yes"]])
+def test_past_transfer_date_without_asking(env, monkeypatch, extra):
+    # no terminal, or --yes: move to tomorrow without a prompt
+    monkeypatch.setattr("builtins.input", lambda prompt: pytest.fail("should not ask"))
+    if extra:
+        monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    assert _record_september("--date", "2026-10-02", *extra) == "2026-10-03"
+
+
+@pytest.mark.parametrize(("answer", "shown"), [("", "03.10.2026"), ("n", "29.09.2026")])
+def test_past_transfer_date_dry_run_asks_too(env, monkeypatch, capsys, answer, shown):
+    monkeypatch.chdir(env)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda prompt: answer)
+    cli.main(["month", "12", "--month", "2026-09", "--date", "2026-10-02", "--dry-run"])
+    assert f"(Überweisung am {shown})" in capsys.readouterr().out
+
+
+def test_explicit_past_transfer_date_is_kept(env, capsys):
+    assert _record_september("--date", "2026-10-02", "--paid-on", "2026-09-29") == "2026-09-29"
+    assert "already past" not in capsys.readouterr().out

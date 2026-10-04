@@ -3,7 +3,7 @@
 import argparse
 import re
 import sys
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
@@ -141,19 +141,43 @@ def print_diff_table(diff: list[tuple[str, str, str]]) -> None:
         print(f"  {label:<20}{old:>14}{new:>14}")
 
 
-def confirm_replace(key: str, diff: list[tuple[str, str, str]], assume_yes: bool) -> bool:
-    print(f"The stored record for {key} differs:")
-    print_diff_table(diff)
-    if assume_yes:
-        return True
+def ask_yes_no(question: str, default: bool) -> bool | None:
+    """Ask on the terminal; None if there is none. Ctrl-D/Ctrl-C count as no."""
     if not sys.stdin.isatty():
-        return False
+        return None
     try:
-        answer = input(f"Replace the record for {key}? [y/N] ")
+        answer = input(f"{question} {'[Y/n]' if default else '[y/N]'} ").strip().lower()
     except (EOFError, KeyboardInterrupt):
         print()
         return False
-    return answer.strip().lower() in ("y", "yes", "j", "ja")
+    if not answer:
+        return default
+    return answer in ("y", "yes", "j", "ja")
+
+
+def confirm_replace(key: str, diff: list[tuple[str, str, str]], assume_yes: bool) -> bool:
+    print(f"The stored record for {key} differs:")
+    print_diff_table(diff)
+    return assume_yes or ask_yes_no(f"Replace the record for {key}?", default=False) is True
+
+
+def transfer_date(scheduled: date, filled_on: date, assume_yes: bool) -> date:
+    """The usual transfer date, or tomorrow if that date is already past.
+
+    Asks before moving the date; without a terminal (or with --yes) it moves it.
+    """
+    if scheduled >= filled_on:
+        return scheduled
+    tomorrow = filled_on + timedelta(days=1)
+    print(f"The usual transfer date {scheduled:%d.%m.%Y} is already past.")
+    answer = (
+        True if assume_yes else ask_yes_no(f"Use tomorrow ({tomorrow:%d.%m.%Y}) instead?", True)
+    )
+    if answer is False:
+        print(f"Keeping {scheduled:%d.%m.%Y} as transfer date.")
+        return scheduled
+    print(f"Using {tomorrow:%d.%m.%Y} as transfer date.")
+    return tomorrow
 
 
 def _parse_swiss_date(text: str) -> str | None:
@@ -254,7 +278,9 @@ def cmd_month(args: argparse.Namespace) -> None:
     cfg = cfgmod.load_config()
     filled_on = args.date or date.today()
     year, month = args.month or payroll_month(filled_on, cfg.workday)
-    paid_on = args.paid_on or payment_date(year, month, cfg.workday)
+    paid_on = args.paid_on or transfer_date(
+        payment_date(year, month, cfg.workday), filled_on, args.yes
+    )
     slip = Payslip(args.hours, cfg.hourly_rate, cfg.rates)
     if args.dry_run:
         output_dir = args.output_dir or Path(".")
@@ -350,7 +376,10 @@ def build_parser() -> argparse.ArgumentParser:
         "-o", "--output-dir", type=Path, help="folder for the payslip (default: output_dir)"
     )
     p.add_argument(
-        "-y", "--yes", action="store_true", help="replace a differing stored record without asking"
+        "-y",
+        "--yes",
+        action="store_true",
+        help="don't ask: replace a differing record, move a past transfer date to tomorrow",
     )
     p.add_argument(
         "-n",
