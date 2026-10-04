@@ -319,7 +319,7 @@ def cmd_import(args: argparse.Namespace) -> None:
         )
 
 
-def cmd_init(args: argparse.Namespace) -> None:
+def cmd_init(_: argparse.Namespace) -> None:
     path = cfgmod.init_config()
     print(f"Created {path} – please fill in the details.")
 
