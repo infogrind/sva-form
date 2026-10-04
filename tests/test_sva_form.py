@@ -401,3 +401,68 @@ def test_month_writes_qr_bill(env, monkeypatch):
     monkeypatch.chdir(env)
     cli.main(["month", "12", "--dry-run", "--date", "2026-10-26"])
     assert (env / "test-qr.pdf").exists()
+
+
+# --- remaining commands and error paths -------------------------------------------
+
+
+def test_import_command(env, capsys):
+    cli.main(["month", "10", "--month", "2026-01", "--date", "2026-01-26"])
+    cli.main(["month", "12", "--month", "2026-02", "--date", "2026-02-23"])
+    pdfs = sorted((env / "out").glob("ahv-formular-*.pdf"))
+    (env / "data" / "sva-form" / "records.json").unlink()
+    capsys.readouterr()
+
+    cli.main(["import", *map(str, pdfs)])
+    out = capsys.readouterr().out
+    assert set(load_records()) == {"2026-01", "2026-02"}
+    assert "2026-01: Auszahlung CHF 287.95" in out
+    assert "(replaced)" not in out
+
+    cli.main(["import", str(pdfs[0])])
+    assert "(replaced)" in capsys.readouterr().out
+
+
+def test_init_command(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    cli.main(["init"])
+    assert "Created" in capsys.readouterr().out
+    assert (tmp_path / "sva-form" / "config.toml").exists()
+    with pytest.raises(SystemExit, match="already exists"):
+        cli.main(["init"])
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [["month", "abc"], ["month", "12", "--month", "2026-13"], ["month", "12", "--month", "Okt"]],
+)
+def test_invalid_arguments(env, argv, capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.main(argv)
+    assert exc.value.code == 2  # argparse usage error
+    assert "error:" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        (lambda c: c.replace('workday = "monday"', 'workday = "montag"'), "Invalid workday"),
+        (lambda c: c.replace("hourly_rate = 30", ""), "Missing setting 'hourly_rate'"),
+        (lambda c: c + "\n[wage\n", "Invalid config"),
+        (lambda c: c + "\n[rates]\nahvv = 5\n", "Unknown rate"),
+    ],
+)
+def test_invalid_config(env, change, message):
+    path = env / "config" / "sva-form" / "config.toml"
+    path.write_text(change(path.read_text()))
+    with pytest.raises(SystemExit, match=message):
+        cli.main(["month", "12"])
+
+
+def test_year_without_records(env, capsys):
+    with pytest.raises(SystemExit, match="No records in"):
+        cli.main(["year"])
+    cli.main(["month", "12", "--date", "2026-10-26"])
+    capsys.readouterr()
+    cli.main(["year", "2025"])
+    assert capsys.readouterr().out.strip() == "No records for 2025."
