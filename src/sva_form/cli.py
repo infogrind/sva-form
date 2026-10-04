@@ -202,13 +202,13 @@ def cmd_month(args: argparse.Namespace) -> None:
     paid_on = args.paid_on or payment_date(year, month, cfg.workday)
     slip = Payslip(args.hours, cfg.hourly_rate, cfg.rates)
     if args.dry_run:
-        output = args.output or Path("test.pdf")
+        output_dir = args.output_dir or Path(".")
+        output = output_dir / "test.pdf"
+        qr_output = output_dir / "test-qr.pdf"
     else:
-        output = args.output or cfg.output_dir / output_filename(year, month)
-    if args.dry_run:
-        qr_output = output.parent / "test-qr.pdf"
-    else:
-        qr_output = (cfg.qr_output_dir or output.parent) / qr_filename(year, month)
+        output_dir = args.output_dir or cfg.output_dir
+        output = output_dir / output_filename(year, month)
+        qr_output = (cfg.qr_output_dir or output_dir) / qr_filename(year, month)
     fill_form(form_values(cfg, slip, year, month, filled_on, paid_on), output)
     write_qr_bill(cfg, slip.payout, qr_message(year, month, slip.hours), qr_output)
     key = f"{year}-{month:02d}"
@@ -283,12 +283,14 @@ def build_parser() -> argparse.ArgumentParser:
         type=date.fromisoformat,
         help="transfer date (default: payment rule, see README)",
     )
-    p.add_argument("-o", "--output", type=Path, help="output PDF path")
+    p.add_argument(
+        "-o", "--output-dir", type=Path, help="folder for the payslip (default: output_dir)"
+    )
     p.add_argument(
         "-n",
         "--dry-run",
         action="store_true",
-        help="write test.pdf and test-qr.pdf and don't record the month",
+        help="write test.pdf and test-qr.pdf (current folder or -o) and don't record the month",
     )
     p.set_defaults(func=cmd_month)
 
