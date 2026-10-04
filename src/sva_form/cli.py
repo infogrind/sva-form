@@ -135,11 +135,15 @@ def record_diff(old: dict, new: dict) -> list[tuple[str, str, str]]:
     return diff
 
 
-def confirm_replace(key: str, diff: list[tuple[str, str, str]], assume_yes: bool) -> bool:
-    print(f"The stored record for {key} differs:")
+def print_diff_table(diff: list[tuple[str, str, str]]) -> None:
     print(f"  {'':<20}{'gespeichert':>14}{'neu':>14}")
     for label, old, new in diff:
         print(f"  {label:<20}{old:>14}{new:>14}")
+
+
+def confirm_replace(key: str, diff: list[tuple[str, str, str]], assume_yes: bool) -> bool:
+    print(f"The stored record for {key} differs:")
+    print_diff_table(diff)
     if assume_yes:
         return True
     if not sys.stdin.isatty():
@@ -262,18 +266,18 @@ def cmd_month(args: argparse.Namespace) -> None:
         qr_output = (cfg.qr_output_dir or output_dir) / qr_filename(year, month)
     key = f"{year}-{month:02d}"
     record = record_from_payslip(slip, filled_on, paid_on, output.resolve())
-    stored = cfgmod.load_records().get(key)
+    records = cfgmod.load_records()
+    stored = records.get(key)
     diff = record_diff(stored, record) if stored else []
     if diff and args.dry_run:
         print(f"Note: differs from the stored record for {key}:")
-        for label, old, new in diff:
-            print(f"  {label:<20}{old:>14}{new:>14}")
+        print_diff_table(diff)
     elif diff and not confirm_replace(key, diff, args.yes):
         raise ConfigError(f"Kept the stored record for {key}; nothing written.")
 
     fill_form(form_values(cfg, slip, year, month, filled_on, paid_on), output)
     write_qr_bill(cfg, slip.payout, qr_message(year, month, slip.hours), qr_output)
-    replaced = not args.dry_run and cfgmod.save_record(key, record)
+    replaced = not args.dry_run and cfgmod.save_record(key, record, records=records)
 
     print(f"Lohnabrechnung {month_label(year, month)} – {cfg.employee.name}")
     print(f"  {slip.hours} Stunden à CHF {chf(slip.hourly_rate)}")

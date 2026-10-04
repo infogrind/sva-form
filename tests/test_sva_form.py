@@ -278,6 +278,7 @@ def test_dry_run_shows_diff_without_asking(env, monkeypatch, capsys):
     _record_october("13", "--dry-run")
     out = capsys.readouterr().out
     assert "Note: differs from the stored record for 2026-10" in out
+    assert re.search(r"gespeichert +neu\n +Stunden +12\.00 +13\.00", out)
     assert load_records()["2026-10"]["hours"] == "12"
 
 

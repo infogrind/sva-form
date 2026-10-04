@@ -146,10 +146,15 @@ def load_records(path: Path | None = None) -> dict[str, dict]:
     return json.loads(path.read_text())
 
 
-def save_record(key: str, record: dict, path: Path | None = None) -> bool:
-    """Store a month's record; returns True if an existing record was replaced."""
+def save_record(
+    key: str, record: dict, path: Path | None = None, records: dict[str, dict] | None = None
+) -> bool:
+    """Store a month's record; returns True if an existing record was replaced.
+
+    Pass `records` if they were already loaded, to avoid reading the file again.
+    """
     path = path or records_path()
-    records = load_records(path)
+    records = dict(load_records(path) if records is None else records)
     replaced = key in records
     records[key] = record
     path.parent.mkdir(parents=True, exist_ok=True)
