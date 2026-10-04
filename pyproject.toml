@@ -1,6 +1,6 @@
 [project]
 name = "sva-form"
-version = "0.2.0"
+version = "0.2.1"
 description = "Monthly SVA Zürich hourly payslips (Stundenlohnabrechnung) and year-end summary"
 readme = "README.md"
 license = "MIT"
