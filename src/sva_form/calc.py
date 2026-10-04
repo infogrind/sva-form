@@ -1,7 +1,7 @@
 """Payroll calculations for the SVA Zürich hourly wage form (vereinfachtes Abrechnungsverfahren)."""
 
 import calendar
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -38,12 +38,25 @@ class Rates:
     fak: Decimal = Decimal("1.025")  # Familienausgleichskasse, employer only
     admin: Decimal = Decimal("5")  # Verwaltungskosten, % of the AHV/IV/EO contributions
 
-    @classmethod
-    def from_mapping(cls, overrides: dict) -> "Rates":
-        unknown = set(overrides) - set(cls.__dataclass_fields__)
+    def with_overrides(self, overrides: dict) -> "Rates":
+        unknown = set(overrides) - set(self.__dataclass_fields__)
         if unknown:
             raise ValueError(f"Unknown rate(s) in config: {', '.join(sorted(unknown))}")
-        return cls(**{k: Decimal(str(v)) for k, v in overrides.items()})
+        return replace(self, **{k: Decimal(str(v)) for k, v in overrides.items()})
+
+
+# Rates verified against SVA Zürich for each year (the 2025 bill matched them).
+# When rates change, add the new year here.
+KNOWN_RATES: dict[int, Rates] = {2025: Rates(), 2026: Rates()}
+
+
+def known_rates(year: int) -> tuple[Rates, int]:
+    """Verified rates for `year`, or those of the closest year that has some."""
+    if year in KNOWN_RATES:
+        return KNOWN_RATES[year], year
+    earlier = [y for y in KNOWN_RATES if y < year]
+    closest = max(earlier) if earlier else min(KNOWN_RATES)
+    return KNOWN_RATES[closest], closest
 
 
 def round_5rp(amount: Decimal) -> Decimal:

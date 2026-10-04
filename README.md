@@ -57,6 +57,19 @@ Verwaltungskosten of 5 % of the AHV/IV/EO contributions. The employee shares
 and the tax were already withheld from the wage, so the employer's own extra
 cost is the bill minus the withheld deductions.
 
+## Rates
+
+The contribution rates are built in for each year verified against SVA Zürich
+(currently 2025 and 2026, see `KNOWN_RATES` in `calc.py`). For any other
+year, `month` and `year` warn and use the closest known year's rates. After
+checking the rates, confirm them in the config with a `[rates.YYYY]` section,
+empty if nothing changed, or with the changed values:
+
+```toml
+[rates.2027]
+fak = 1.0
+```
+
 ## Development
 
 ```sh

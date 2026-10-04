@@ -152,7 +152,7 @@ def test_month_labels():
 
 def test_unknown_rate_rejected():
     with pytest.raises(ValueError, match="ahvv"):
-        Rates.from_mapping({"ahvv": 5})
+        Rates().with_overrides({"ahvv": 5})
 
 
 # --- config -------------------------------------------------------------------
@@ -163,13 +163,43 @@ def test_load_config(env):
     assert cfg.employee.block == "Anna Beispiel\nBeispielstrasse 2\n8047 Zürich"
     assert cfg.hourly_rate == D("30")
     assert cfg.workday == 0
-    assert cfg.rates == Rates()
+    assert cfg.rates_for(2026) == (Rates(), None)
 
 
 def test_rate_overrides(env):
     path = env / "config" / "sva-form" / "config.toml"
-    path.write_text(path.read_text() + "\n[rates]\nahv = 5.275\n")
-    assert load_config().rates.ahv == D("5.275")
+    path.write_text(path.read_text() + "\n[rates]\nahv = 5.275\n\n[rates.2026]\nfak = 1.0\n")
+    cfg = load_config()
+    assert cfg.rates_for(2026)[0] == Rates(ahv=D("5.275"), fak=D("1.0"))
+    assert cfg.rates_for(2025)[0] == Rates(ahv=D("5.275"))
+
+
+def test_rates_for_unverified_year(env):
+    cfg = load_config()
+    rates, warning = cfg.rates_for(2027)
+    assert rates == Rates()  # falls back to 2026
+    assert "rates for 2027 have not been verified; using those of 2026" in warning
+    assert "[rates.2027]" in warning
+    assert cfg.rates_for(2024)[1] is not None  # older than any known year
+    path = env / "config" / "sva-form" / "config.toml"
+    path.write_text(path.read_text() + "\n[rates.2027]\n")  # confirmed unchanged
+    assert load_config().rates_for(2027) == (Rates(), None)
+
+
+def test_invalid_rates_section(env):
+    path = env / "config" / "sva-form" / "config.toml"
+    path.write_text(path.read_text() + "\n[rates.next]\nahv = 5\n")
+    with pytest.raises(ConfigError, match=r"\[rates.next\]"):
+        load_config()
+
+
+def test_unverified_rates_warn_in_month_and_year(env, capsys):
+    cli.main(["month", "12", "--date", "2027-01-25"])
+    assert "rates for 2027 have not been verified" in capsys.readouterr().err
+    cli.main(["year", "2027"])
+    assert "rates for 2027 have not been verified" in capsys.readouterr().err
+    cli.main(["month", "12", "--date", "2026-10-26"])
+    assert capsys.readouterr().err == ""
 
 
 def test_missing_config(tmp_path, monkeypatch):

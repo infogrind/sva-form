@@ -11,6 +11,7 @@ from . import config as cfgmod
 from .calc import (
     EmployerBill,
     Payslip,
+    Rates,
     money,
     month_label,
     parse_month_label,
@@ -201,7 +202,7 @@ def record_from_form(fields: dict[str, str], pdf: Path) -> tuple[str, dict]:
     return f"{year}-{month:02d}", record
 
 
-def year_report(records: dict[str, dict], year: int, cfg: Config) -> str:
+def year_report(records: dict[str, dict], year: int, cfg: Config, rates: Rates) -> str:
     months = {k: v for k, v in sorted(records.items()) if k.startswith(f"{year}-")}
     if not months:
         return f"No records for {year}."
@@ -220,8 +221,7 @@ def year_report(records: dict[str, dict], year: int, cfg: Config) -> str:
     lines.append(f"{'Total':<9}" + "".join(f"{chf(total(c)):>13}" for _, c in cols))
 
     base = total("base")
-    bill = EmployerBill(base, cfg.rates)
-    rates = cfg.rates
+    bill = EmployerBill(base, rates)
 
     def row(label: str, amount: Decimal) -> str:
         return f"{label:<50}CHF {chf(amount):>10}"
@@ -278,10 +278,14 @@ def cmd_month(args: argparse.Namespace) -> None:
     cfg = cfgmod.load_config()
     filled_on = args.date or date.today()
     year, month = args.month or payroll_month(filled_on, cfg.workday)
+    rates, warning = cfg.rates_for(year)
+    if warning:
+        print(f"Warning: {warning}", file=sys.stderr)
+    records = cfgmod.load_records()
     paid_on = args.paid_on or transfer_date(
         payment_date(year, month, cfg.workday), filled_on, args.yes
     )
-    slip = Payslip(args.hours, cfg.hourly_rate, cfg.rates)
+    slip = Payslip(args.hours, cfg.hourly_rate, rates)
     if args.dry_run:
         output_dir = args.output_dir or Path(".")
         output = output_dir / "test.pdf"
@@ -292,7 +296,6 @@ def cmd_month(args: argparse.Namespace) -> None:
         qr_output = (cfg.qr_output_dir or output_dir) / qr_filename(year, month)
     key = f"{year}-{month:02d}"
     record = record_from_payslip(slip, filled_on, paid_on, output.resolve())
-    records = cfgmod.load_records()
     stored = records.get(key)
     diff = record_diff(stored, record) if stored else []
     if diff and args.dry_run:
@@ -332,7 +335,10 @@ def cmd_year(args: argparse.Namespace) -> None:
     if not records:
         raise ConfigError(f"No records in {cfgmod.records_path()}.")
     year = args.year or max(int(k[:4]) for k in records)
-    print(year_report(records, year, cfg))
+    rates, warning = cfg.rates_for(year)
+    if warning:
+        print(f"Warning: {warning}", file=sys.stderr)
+    print(year_report(records, year, cfg, rates))
 
 
 def cmd_import(args: argparse.Namespace) -> None:

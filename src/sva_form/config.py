@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
 
-from .calc import WEEKDAYS, Rates
+from .calc import WEEKDAYS, Rates, known_rates
 
 APP = "sva-form"
 
@@ -38,7 +38,13 @@ iban = "CH00 0000 0000 0000 0000 0"
 [wage]
 hourly_rate = 30.00
 
-# Optional overrides of the built-in 2026 rates (all in percent):
+# Optional overrides of the built-in rates (all in percent). sva-form warns
+# when it runs for a year whose rates it doesn't know; check them at
+# svazurich.ch and confirm with a [rates.YYYY] section (empty if unchanged):
+# [rates.2027]
+# fak = 1.0
+#
+# Overrides for all years:
 # [rates]
 # vacation = 8.33      # Ferienzuschlag
 # ahv = 5.3            # AHV/IV/EO employee share
@@ -91,7 +97,25 @@ class Config:
     workday: int = 0
     output_dir: Path = Path(".")
     qr_output_dir: Path | None = None
-    rates: Rates = field(default_factory=Rates)
+    rate_overrides: dict = field(default_factory=dict)  # [rates]: all years
+    year_rate_overrides: dict[int, dict] = field(default_factory=dict)  # [rates.YYYY]
+
+    def rates_for(self, year: int) -> tuple[Rates, str | None]:
+        """Rates for `year` and a warning if they have not been verified for it.
+
+        A [rates.YYYY] section in the config (empty if nothing changed) counts
+        as verification by the user.
+        """
+        base, base_year = known_rates(year)
+        rates = base.with_overrides(self.rate_overrides)
+        rates = rates.with_overrides(self.year_rate_overrides.get(year, {}))
+        if base_year == year or year in self.year_rate_overrides:
+            return rates, None
+        return rates, (
+            f"The contribution rates for {year} have not been verified; using those of "
+            f"{base_year}. Check them at svazurich.ch and confirm them with a [rates.{year}] "
+            f"section in {config_path()} (empty if unchanged)."
+        )
 
 
 class ConfigError(Exception):
@@ -121,12 +145,26 @@ def load_config(path: Path | None = None) -> Config:
             qr_output_dir=Path(raw["qr_output_dir"]).expanduser()
             if "qr_output_dir" in raw
             else None,
-            rates=Rates.from_mapping(raw.get("rates", {})),
+            **_rate_overrides(raw.get("rates", {})),
         )
     except KeyError as e:
         raise ConfigError(f"Missing setting {e} in {path}") from e
     except (tomllib.TOMLDecodeError, ValueError) as e:
         raise ConfigError(f"Invalid config {path}: {e}") from e
+
+
+def _rate_overrides(table: dict) -> dict:
+    """Split [rates] into overrides for all years and [rates.YYYY] sections."""
+    general = {k: v for k, v in table.items() if not isinstance(v, dict)}
+    years = {}
+    for key, value in table.items():
+        if isinstance(value, dict):
+            if not key.isdigit():
+                raise ValueError(f"Invalid section [rates.{key}], expected a year")
+            years[int(key)] = value
+    for overrides in [general, *years.values()]:
+        Rates().with_overrides(overrides)  # validate the names early
+    return {"rate_overrides": general, "year_rate_overrides": years}
 
 
 def init_config(path: Path | None = None) -> Path:
